@@ -1,77 +1,137 @@
-import db from './database';
+import { Schema, model, Types } from 'mongoose';
+import { ClaimStatus, ItemStatus, ItemType, RewardStatus, UserRole } from '../types/domain';
 
 /**
- * Initializes the schema idempotently. Called once at server boot.
- * ER diagram: USERS, CATEGORIES, ITEMS, CLAIMS (see /ErDiagram.md).
+ * Mongoose schemas — authoritative persistence definitions for each
+ * collection. `toJSON` transforms normalize `_id → id` so that API clients
+ * never see Mongo-specific fields.
  */
-export function initSchema(): void {
-  const conn = db.getConnection();
-  conn.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      email TEXT UNIQUE NOT NULL,
-      password TEXT NOT NULL,
-      phone TEXT,
-      role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user','admin')),
-      is_suspended INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
 
-    CREATE TABLE IF NOT EXISTS categories (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT UNIQUE NOT NULL,
-      description TEXT,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
+const stripMongoInternals = {
+  virtuals: true,
+  versionKey: false,
+  transform: (_: unknown, ret: Record<string, unknown>) => {
+    ret.id = String(ret._id);
+    delete ret._id;
+    return ret;
+  }
+};
 
-    CREATE TABLE IF NOT EXISTS items (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      title TEXT NOT NULL,
-      description TEXT NOT NULL,
-      category_id INTEGER,
-      location TEXT NOT NULL,
-      date_lost_or_found TEXT NOT NULL,
-      image_url TEXT,
-      type TEXT NOT NULL CHECK (type IN ('lost','found')),
-      status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','claimed','returned','closed')),
-      reward_amount REAL DEFAULT 0,
-      reward_status TEXT NOT NULL DEFAULT 'not_declared' CHECK (reward_status IN ('not_declared','pending','completed')),
-      created_by INTEGER NOT NULL,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
-      FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_items_type ON items(type);
-    CREATE INDEX IF NOT EXISTS idx_items_status ON items(status);
-    CREATE INDEX IF NOT EXISTS idx_items_created_by ON items(created_by);
-
-    CREATE TABLE IF NOT EXISTS claims (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      item_id INTEGER NOT NULL,
-      claimer_id INTEGER NOT NULL,
-      message TEXT NOT NULL,
-      claim_status TEXT NOT NULL DEFAULT 'pending' CHECK (claim_status IN ('pending','accepted','rejected')),
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,
-      FOREIGN KEY (claimer_id) REFERENCES users(id) ON DELETE CASCADE,
-      UNIQUE (item_id, claimer_id)
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_claims_item ON claims(item_id);
-    CREATE INDEX IF NOT EXISTS idx_claims_claimer ON claims(claimer_id);
-
-    CREATE TABLE IF NOT EXISTS notifications (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      message TEXT NOT NULL,
-      is_read INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-  `);
+export interface UserDoc {
+  _id: Types.ObjectId;
+  name: string;
+  email: string;
+  password: string;
+  phone: string | null;
+  role: UserRole;
+  isSuspended: boolean;
+  createdAt: Date;
+  updatedAt: Date;
 }
+
+const UserSchema = new Schema<UserDoc>(
+  {
+    name: { type: String, required: true, trim: true },
+    email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    password: { type: String, required: true },
+    phone: { type: String, default: null },
+    role: { type: String, enum: ['user', 'admin'], default: 'user', required: true },
+    isSuspended: { type: Boolean, default: false, required: true }
+  },
+  { timestamps: true, toJSON: stripMongoInternals, toObject: stripMongoInternals }
+);
+
+export interface CategoryDoc {
+  _id: Types.ObjectId;
+  name: string;
+  description: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const CategorySchema = new Schema<CategoryDoc>(
+  {
+    name: { type: String, required: true, unique: true, trim: true },
+    description: { type: String, default: null }
+  },
+  { timestamps: true, toJSON: stripMongoInternals, toObject: stripMongoInternals }
+);
+
+export interface ItemDoc {
+  _id: Types.ObjectId;
+  title: string;
+  description: string;
+  categoryId: Types.ObjectId | null;
+  location: string;
+  dateLostOrFound: string;
+  imageUrl: string | null;
+  type: ItemType;
+  status: ItemStatus;
+  rewardAmount: number;
+  rewardStatus: RewardStatus;
+  createdBy: Types.ObjectId;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const ItemSchema = new Schema<ItemDoc>(
+  {
+    title: { type: String, required: true, trim: true },
+    description: { type: String, required: true },
+    categoryId: { type: Schema.Types.ObjectId, ref: 'Category', default: null },
+    location: { type: String, required: true, trim: true },
+    dateLostOrFound: { type: String, required: true },
+    imageUrl: { type: String, default: null },
+    type: { type: String, enum: ['lost', 'found'], required: true, index: true },
+    status: { type: String, enum: ['open', 'claimed', 'returned', 'closed'], default: 'open', index: true },
+    rewardAmount: { type: Number, default: 0 },
+    rewardStatus: { type: String, enum: ['not_declared', 'pending', 'completed'], default: 'not_declared' },
+    createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true }
+  },
+  { timestamps: true, toJSON: stripMongoInternals, toObject: stripMongoInternals }
+);
+
+export interface ClaimDoc {
+  _id: Types.ObjectId;
+  itemId: Types.ObjectId;
+  claimerId: Types.ObjectId;
+  message: string;
+  claimStatus: ClaimStatus;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const ClaimSchema = new Schema<ClaimDoc>(
+  {
+    itemId: { type: Schema.Types.ObjectId, ref: 'Item', required: true, index: true },
+    claimerId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    message: { type: String, required: true },
+    claimStatus: { type: String, enum: ['pending', 'accepted', 'rejected'], default: 'pending' }
+  },
+  { timestamps: true, toJSON: stripMongoInternals, toObject: stripMongoInternals }
+);
+ClaimSchema.index({ itemId: 1, claimerId: 1 }, { unique: true });
+
+export interface NotificationDoc {
+  _id: Types.ObjectId;
+  userId: Types.ObjectId;
+  message: string;
+  isRead: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const NotificationSchema = new Schema<NotificationDoc>(
+  {
+    userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    message: { type: String, required: true },
+    isRead: { type: Boolean, default: false }
+  },
+  { timestamps: true, toJSON: stripMongoInternals, toObject: stripMongoInternals }
+);
+
+export const UserModel = model<UserDoc>('User', UserSchema);
+export const CategoryModel = model<CategoryDoc>('Category', CategorySchema);
+export const ItemModel = model<ItemDoc>('Item', ItemSchema);
+export const ClaimModel = model<ClaimDoc>('Claim', ClaimSchema);
+export const NotificationModel = model<NotificationDoc>('Notification', NotificationSchema);
