@@ -1,27 +1,17 @@
-import path from 'path';
-import fs from 'fs';
-import Database, { Database as DatabaseType } from 'better-sqlite3';
+import mongoose, { Connection } from 'mongoose';
 
 /**
- * Database — Singleton wrapper around better-sqlite3.
+ * Database — Singleton wrapper around the Mongoose connection.
  *
- * Design pattern: Singleton. Only one connection exists across the process
- * so repositories share the same transactional context and prepared-statement
- * cache. Schema is kept portable to MySQL/Postgres where practical.
+ * Design pattern: Singleton. Exactly one Mongoose connection per process so
+ * all repositories share the same connection pool, event listeners, and
+ * schema registrations.
  */
 class DatabaseSingleton {
   private static instance: DatabaseSingleton | null = null;
-  private readonly db: DatabaseType;
+  private connectionPromise: Promise<Connection> | null = null;
 
-  private constructor() {
-    const dbFile = process.env.DB_FILE || path.join(__dirname, '../../data/lostfound.db');
-    const dir = path.dirname(dbFile);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
-    this.db = new Database(dbFile);
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('foreign_keys = ON');
-  }
+  private constructor() {}
 
   static getInstance(): DatabaseSingleton {
     if (!DatabaseSingleton.instance) {
@@ -30,12 +20,24 @@ class DatabaseSingleton {
     return DatabaseSingleton.instance;
   }
 
-  getConnection(): DatabaseType {
-    return this.db;
+  async connect(): Promise<Connection> {
+    if (!this.connectionPromise) {
+      const uri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/lostfound';
+      mongoose.set('strictQuery', true);
+      this.connectionPromise = mongoose
+        .connect(uri, { autoIndex: true })
+        .then((m) => m.connection);
+    }
+    return this.connectionPromise;
   }
 
-  close(): void {
-    this.db.close();
+  getConnection(): Connection {
+    return mongoose.connection;
+  }
+
+  async close(): Promise<void> {
+    await mongoose.disconnect();
+    this.connectionPromise = null;
   }
 }
 
