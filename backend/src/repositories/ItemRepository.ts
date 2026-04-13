@@ -1,4 +1,6 @@
+import { Types } from 'mongoose';
 import { BaseRepository } from './BaseRepository';
+import { ItemModel, ItemDoc } from '../config/schema';
 import { Item } from '../models/Item';
 import { ItemRow, ItemStatus, RewardStatus } from '../types/domain';
 import { SearchStrategy } from '../patterns/SearchStrategy';
@@ -6,109 +8,98 @@ import { SearchStrategy } from '../patterns/SearchStrategy';
 export interface UpdateItemFields {
   title?: string;
   description?: string;
-  categoryId?: number | null;
+  categoryId?: string | null;
   location?: string;
   dateLostOrFound?: string;
   imageUrl?: string | null;
   status?: ItemStatus;
 }
 
-class ItemRepository extends BaseRepository<ItemRow, Item> {
-  constructor() { super('items'); }
+class ItemRepository extends BaseRepository<ItemDoc, ItemRow, Item> {
+  constructor() { super(ItemModel); }
 
-  protected mapRow(row: ItemRow | undefined): Item | null {
-    return Item.fromRow(row);
+  protected mapRow(row: ItemRow | null | undefined): Item | null {
+    return Item.fromRow(row ?? undefined);
   }
 
-  create(item: Item): Item {
-    const info = this.db.prepare(
-      `INSERT INTO items
-         (title, description, category_id, location, date_lost_or_found,
-          image_url, type, reward_amount, reward_status, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      item.title,
-      item.description,
-      item.categoryId,
-      item.location,
-      item.dateLostOrFound,
-      item.imageUrl,
-      item.type,
-      item.rewardAmount,
-      item.rewardStatus,
-      item.createdBy
-    );
-    return this.findById(Number(info.lastInsertRowid))!;
+  async create(item: Item): Promise<Item> {
+    const doc = await this.collection.create({
+      title: item.title,
+      description: item.description,
+      categoryId: item.categoryId ? new Types.ObjectId(item.categoryId) : null,
+      location: item.location,
+      dateLostOrFound: item.dateLostOrFound,
+      imageUrl: item.imageUrl,
+      type: item.type,
+      status: item.status,
+      rewardAmount: item.rewardAmount,
+      rewardStatus: item.rewardStatus,
+      createdBy: new Types.ObjectId(item.createdBy)
+    });
+    return this.mapRow(this.toRow(doc.toObject()))!;
   }
 
-  update(id: number, fields: UpdateItemFields): Item | null {
-    const mapping: { col: string; value: unknown }[] = [
-      { col: 'title', value: fields.title },
-      { col: 'description', value: fields.description },
-      { col: 'category_id', value: fields.categoryId },
-      { col: 'location', value: fields.location },
-      { col: 'date_lost_or_found', value: fields.dateLostOrFound },
-      { col: 'image_url', value: fields.imageUrl },
-      { col: 'status', value: fields.status }
-    ];
-    const sets: string[] = [];
-    const params: unknown[] = [];
-    for (const { col, value } of mapping) {
-      if (value !== undefined) { sets.push(`${col} = ?`); params.push(value); }
+  async update(id: string, fields: UpdateItemFields): Promise<Item | null> {
+    const update: Record<string, unknown> = {};
+    if (fields.title !== undefined) update.title = fields.title;
+    if (fields.description !== undefined) update.description = fields.description;
+    if (fields.categoryId !== undefined) {
+      update.categoryId = fields.categoryId && Types.ObjectId.isValid(fields.categoryId)
+        ? new Types.ObjectId(fields.categoryId)
+        : null;
     }
-    if (!sets.length) return this.findById(id);
-    params.push(id);
-    this.db.prepare(
-      `UPDATE items SET ${sets.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
-    ).run(...(params as (string | number | null)[]));
-    return this.findById(id);
+    if (fields.location !== undefined) update.location = fields.location;
+    if (fields.dateLostOrFound !== undefined) update.dateLostOrFound = fields.dateLostOrFound;
+    if (fields.imageUrl !== undefined) update.imageUrl = fields.imageUrl;
+    if (fields.status !== undefined) update.status = fields.status;
+    if (!Object.keys(update).length) return this.findById(id);
+
+    const doc = await this.collection
+      .findByIdAndUpdate(id, { $set: update }, { new: true })
+      .lean()
+      .exec();
+    return this.mapRow(this.toRow(doc));
   }
 
-  updateStatus(id: number, status: ItemStatus): Item | null {
-    this.db.prepare(
-      `UPDATE items SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
-    ).run(status, id);
-    return this.findById(id);
+  async updateStatus(id: string, status: ItemStatus): Promise<Item | null> {
+    const doc = await this.collection
+      .findByIdAndUpdate(id, { $set: { status } }, { new: true })
+      .lean()
+      .exec();
+    return this.mapRow(this.toRow(doc));
   }
 
-  updateRewardStatus(id: number, rewardStatus: RewardStatus, rewardAmount?: number): Item | null {
-    if (rewardAmount !== undefined) {
-      this.db.prepare(
-        `UPDATE items SET reward_status = ?, reward_amount = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
-      ).run(rewardStatus, rewardAmount, id);
-    } else {
-      this.db.prepare(
-        `UPDATE items SET reward_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
-      ).run(rewardStatus, id);
-    }
-    return this.findById(id);
+  async updateRewardStatus(id: string, rewardStatus: RewardStatus, rewardAmount?: number): Promise<Item | null> {
+    const update: Record<string, unknown> = { rewardStatus };
+    if (rewardAmount !== undefined) update.rewardAmount = rewardAmount;
+    const doc = await this.collection
+      .findByIdAndUpdate(id, { $set: update }, { new: true })
+      .lean()
+      .exec();
+    return this.mapRow(this.toRow(doc));
   }
 
-  findByUser(userId: number): Item[] {
-    const rows = this.db.prepare(
-      `SELECT * FROM items WHERE created_by = ? ORDER BY created_at DESC`
-    ).all(userId) as ItemRow[];
-    return rows.map((r) => this.mapRow(r)).filter((m): m is Item => m !== null);
+  async findByUser(userId: string): Promise<Item[]> {
+    if (!Types.ObjectId.isValid(userId)) return [];
+    const docs = await this.collection
+      .find({ createdBy: new Types.ObjectId(userId) })
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec();
+    return docs.map((d) => this.mapRow(this.toRow(d))).filter((m): m is Item => m !== null);
   }
 
   /**
-   * Composes a list of SearchStrategy objects into a single parameterized query.
-   * Each strategy contributes one AND-joined clause fragment.
+   * Composes a list of SearchStrategy objects into one Mongo filter.
+   * Each strategy contributes one AND-merged fragment.
    */
-  searchWithStrategies(strategies: SearchStrategy[] = []): Item[] {
-    let sql = 'SELECT * FROM items';
-    const params: (string | number)[] = [];
-    if (strategies.length) {
-      const parts = strategies.map((s) => {
-        const frag = s.apply();
-        params.push(...frag.params);
-        return frag.clause;
-      });
-      sql += ' WHERE ' + parts.join(' AND ');
+  async searchWithStrategies(strategies: SearchStrategy[] = []): Promise<Item[]> {
+    const filter: Record<string, unknown> = {};
+    for (const strat of strategies) {
+      Object.assign(filter, strat.apply());
     }
-    sql += ' ORDER BY created_at DESC';
-    const rows = this.db.prepare(sql).all(...params) as ItemRow[];
-    return rows.map((r) => this.mapRow(r)).filter((m): m is Item => m !== null);
+    const docs = await this.collection.find(filter).sort({ createdAt: -1 }).lean().exec();
+    return docs.map((d) => this.mapRow(this.toRow(d))).filter((m): m is Item => m !== null);
   }
 }
 

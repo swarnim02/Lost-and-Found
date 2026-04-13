@@ -1,41 +1,58 @@
-import type { Database as DatabaseType } from 'better-sqlite3';
-import db from '../config/database';
+import { FilterQuery, Model, Types } from 'mongoose';
 
 /**
- * BaseRepository — abstract parent for all table-specific repositories.
+ * BaseRepository — abstract parent for all collection-specific repositories.
  *
  * Responsibility: generic CRUD so concrete repositories only write
- * table-specific queries. Subclasses override `mapRow` to return domain
- * objects instead of raw rows.
+ * collection-specific queries. Subclasses override `mapRow` to return domain
+ * objects instead of raw Mongoose lean results.
  */
-export abstract class BaseRepository<TRow extends { id: number }, TModel> {
-  protected readonly db: DatabaseType;
-  protected readonly table: string;
+export abstract class BaseRepository<TDoc, TRow extends { id: string }, TModel> {
+  protected readonly collection: Model<TDoc>;
 
-  constructor(table: string) {
-    this.table = table;
-    this.db = db.getConnection();
+  constructor(collection: Model<TDoc>) {
+    this.collection = collection;
   }
 
-  protected abstract mapRow(row: TRow | undefined): TModel | null;
+  protected abstract mapRow(row: TRow | null | undefined): TModel | null;
 
-  findById(id: number): TModel | null {
-    const row = this.db.prepare(`SELECT * FROM ${this.table} WHERE id = ?`).get(id) as TRow | undefined;
-    return this.mapRow(row);
+  protected toRow(doc: unknown): TRow | null {
+    if (!doc) return null;
+    const raw = doc as Record<string, unknown>;
+    const out: Record<string, unknown> = { ...raw };
+    if (raw._id) {
+      out.id = String(raw._id);
+      delete out._id;
+    }
+    if ('__v' in out) delete out.__v;
+    if (raw.createdAt instanceof Date) out.createdAt = raw.createdAt.toISOString();
+    if (raw.updatedAt instanceof Date) out.updatedAt = raw.updatedAt.toISOString();
+    for (const key of Object.keys(out)) {
+      if (out[key] instanceof Types.ObjectId) out[key] = String(out[key]);
+    }
+    return out as unknown as TRow;
   }
 
-  findAll(orderBy = 'id DESC'): TModel[] {
-    const rows = this.db.prepare(`SELECT * FROM ${this.table} ORDER BY ${orderBy}`).all() as TRow[];
-    return rows.map((r) => this.mapRow(r)).filter((m): m is TModel => m !== null);
+  async findById(id: string): Promise<TModel | null> {
+    if (!Types.ObjectId.isValid(id)) return null;
+    const doc = await this.collection.findById(id).lean().exec();
+    return this.mapRow(this.toRow(doc));
   }
 
-  deleteById(id: number): boolean {
-    return this.db.prepare(`DELETE FROM ${this.table} WHERE id = ?`).run(id).changes > 0;
+  async findAll(sort: Record<string, 1 | -1> = { createdAt: -1 }): Promise<TModel[]> {
+    const docs = await this.collection.find().sort(sort).lean().exec();
+    return docs
+      .map((d) => this.mapRow(this.toRow(d)))
+      .filter((m): m is TModel => m !== null);
   }
 
-  count(whereClause = '', params: (string | number)[] = []): number {
-    const sql = `SELECT COUNT(*) AS c FROM ${this.table}${whereClause ? ' WHERE ' + whereClause : ''}`;
-    const row = this.db.prepare(sql).get(...params) as { c: number };
-    return row.c;
+  async deleteById(id: string): Promise<boolean> {
+    if (!Types.ObjectId.isValid(id)) return false;
+    const res = await this.collection.deleteOne({ _id: new Types.ObjectId(id) }).exec();
+    return (res.deletedCount ?? 0) > 0;
+  }
+
+  async count(filter: FilterQuery<TDoc> = {}): Promise<number> {
+    return this.collection.countDocuments(filter).exec();
   }
 }

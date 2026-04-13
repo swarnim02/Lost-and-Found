@@ -1,4 +1,6 @@
+import { Types } from 'mongoose';
 import { BaseRepository } from './BaseRepository';
+import { ClaimModel, ClaimDoc } from '../config/schema';
 import { Claim } from '../models/Claim';
 import { ClaimRow, ClaimStatus } from '../types/domain';
 
@@ -10,79 +12,131 @@ export interface ClaimWithJoins extends Claim {
   itemStatus?: string;
 }
 
-class ClaimRepository extends BaseRepository<ClaimRow, Claim> {
-  constructor() { super('claims'); }
+type PopulatedClaim = ClaimRow & {
+  claimer?: { name: string; email: string };
+  item?: { title: string; type: string; status: string };
+};
 
-  protected mapRow(row: ClaimRow | undefined): Claim | null {
+class ClaimRepository extends BaseRepository<ClaimDoc, ClaimRow, Claim> {
+  constructor() { super(ClaimModel); }
+
+  protected mapRow(row: ClaimRow | null | undefined): Claim | null {
     return row ? new Claim(row) : null;
   }
 
-  create({ itemId, claimerId, message }: { itemId: number; claimerId: number; message: string }): Claim {
-    const info = this.db.prepare(
-      `INSERT INTO claims (item_id, claimer_id, message) VALUES (?, ?, ?)`
-    ).run(itemId, claimerId, message);
-    return this.findById(Number(info.lastInsertRowid))!;
-  }
-
-  updateStatus(id: number, status: ClaimStatus): Claim | null {
-    this.db.prepare(
-      `UPDATE claims SET claim_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
-    ).run(status, id);
-    return this.findById(id);
-  }
-
-  findByItem(itemId: number): ClaimWithJoins[] {
-    const rows = this.db.prepare(
-      `SELECT c.*, u.name AS claimer_name, u.email AS claimer_email
-       FROM claims c JOIN users u ON c.claimer_id = u.id
-       WHERE c.item_id = ? ORDER BY c.created_at DESC`
-    ).all(itemId) as (ClaimRow & { claimer_name: string; claimer_email: string })[];
-    return rows.map((r) => {
-      const claim = new Claim(r) as ClaimWithJoins;
-      claim.claimerName = r.claimer_name;
-      claim.claimerEmail = r.claimer_email;
-      return claim;
+  async create({ itemId, claimerId, message }: { itemId: string; claimerId: string; message: string }): Promise<Claim> {
+    const doc = await this.collection.create({
+      itemId: new Types.ObjectId(itemId),
+      claimerId: new Types.ObjectId(claimerId),
+      message
     });
+    return this.mapRow(this.toRow(doc.toObject()))!;
   }
 
-  findByClaimer(claimerId: number): ClaimWithJoins[] {
-    const rows = this.db.prepare(
-      `SELECT c.*, i.title AS item_title, i.type AS item_type, i.status AS item_status
-       FROM claims c JOIN items i ON c.item_id = i.id
-       WHERE c.claimer_id = ? ORDER BY c.created_at DESC`
-    ).all(claimerId) as (ClaimRow & { item_title: string; item_type: string; item_status: string })[];
-    return rows.map((r) => {
-      const claim = new Claim(r) as ClaimWithJoins;
-      claim.itemTitle = r.item_title;
-      claim.itemType = r.item_type;
-      claim.itemStatus = r.item_status;
-      return claim;
-    });
+  async updateStatus(id: string, status: ClaimStatus): Promise<Claim | null> {
+    const doc = await this.collection
+      .findByIdAndUpdate(id, { $set: { claimStatus: status } }, { new: true })
+      .lean()
+      .exec();
+    return this.mapRow(this.toRow(doc));
+  }
+
+  async findByItem(itemId: string): Promise<ClaimWithJoins[]> {
+    if (!Types.ObjectId.isValid(itemId)) return [];
+    const docs = await this.collection
+      .find({ itemId: new Types.ObjectId(itemId) })
+      .sort({ createdAt: -1 })
+      .populate({ path: 'claimerId', select: 'name email' })
+      .lean()
+      .exec();
+    return docs.map((d) => this.decorate(d, 'claim'));
+  }
+
+  async findByClaimer(claimerId: string): Promise<ClaimWithJoins[]> {
+    if (!Types.ObjectId.isValid(claimerId)) return [];
+    const docs = await this.collection
+      .find({ claimerId: new Types.ObjectId(claimerId) })
+      .sort({ createdAt: -1 })
+      .populate({ path: 'itemId', select: 'title type status' })
+      .lean()
+      .exec();
+    return docs.map((d) => this.decorate(d, 'item'));
   }
 
   /** All claims on items a given owner posted — owner's inbox. */
-  findForOwner(ownerId: number): ClaimWithJoins[] {
-    const rows = this.db.prepare(
-      `SELECT c.*, i.title AS item_title, u.name AS claimer_name, u.email AS claimer_email
-       FROM claims c
-       JOIN items i ON c.item_id = i.id
-       JOIN users u ON c.claimer_id = u.id
-       WHERE i.created_by = ? ORDER BY c.created_at DESC`
-    ).all(ownerId) as (ClaimRow & { item_title: string; claimer_name: string; claimer_email: string })[];
-    return rows.map((r) => {
-      const claim = new Claim(r) as ClaimWithJoins;
-      claim.itemTitle = r.item_title;
-      claim.claimerName = r.claimer_name;
-      claim.claimerEmail = r.claimer_email;
+  async findForOwner(ownerId: string): Promise<ClaimWithJoins[]> {
+    if (!Types.ObjectId.isValid(ownerId)) return [];
+    const ownerObjectId = new Types.ObjectId(ownerId);
+    const docs = await this.collection.aggregate([
+      {
+        $lookup: {
+          from: 'items',
+          localField: 'itemId',
+          foreignField: '_id',
+          as: 'item'
+        }
+      },
+      { $unwind: '$item' },
+      { $match: { 'item.createdBy': ownerObjectId } },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'claimerId',
+          foreignField: '_id',
+          as: 'claimer'
+        }
+      },
+      { $unwind: '$claimer' },
+      { $sort: { createdAt: -1 } }
+    ]).exec();
+
+    return docs.map((d) => {
+      const row = this.toRow(d)!;
+      const claim = new Claim(row) as ClaimWithJoins;
+      claim.itemTitle = d.item?.title;
+      claim.claimerName = d.claimer?.name;
+      claim.claimerEmail = d.claimer?.email;
       return claim;
     });
   }
 
-  existsForUser(itemId: number, claimerId: number): boolean {
-    const row = this.db.prepare(
-      `SELECT 1 AS ok FROM claims WHERE item_id = ? AND claimer_id = ?`
-    ).get(itemId, claimerId) as { ok: number } | undefined;
-    return Boolean(row);
+  async existsForUser(itemId: string, claimerId: string): Promise<boolean> {
+    if (!Types.ObjectId.isValid(itemId) || !Types.ObjectId.isValid(claimerId)) return false;
+    const exists = await this.collection.exists({
+      itemId: new Types.ObjectId(itemId),
+      claimerId: new Types.ObjectId(claimerId)
+    });
+    return Boolean(exists);
+  }
+
+  private decorate(raw: unknown, joinType: 'claim' | 'item'): ClaimWithJoins {
+    const doc = raw as Record<string, unknown> & {
+      claimerId?: unknown;
+      itemId?: unknown;
+    };
+
+    const populatedClaimer = joinType === 'claim' && doc.claimerId && typeof doc.claimerId === 'object'
+      ? doc.claimerId as { _id: Types.ObjectId; name: string; email: string }
+      : null;
+    const populatedItem = joinType === 'item' && doc.itemId && typeof doc.itemId === 'object'
+      ? doc.itemId as { _id: Types.ObjectId; title: string; type: string; status: string }
+      : null;
+
+    const flat: Record<string, unknown> = { ...doc };
+    flat.claimerId = populatedClaimer ? String(populatedClaimer._id) : String(doc.claimerId);
+    flat.itemId = populatedItem ? String(populatedItem._id) : String(doc.itemId);
+    const row = this.toRow(flat)!;
+    const claim = new Claim(row) as ClaimWithJoins;
+    if (populatedClaimer) {
+      claim.claimerName = populatedClaimer.name;
+      claim.claimerEmail = populatedClaimer.email;
+    }
+    if (populatedItem) {
+      claim.itemTitle = populatedItem.title;
+      claim.itemType = populatedItem.type;
+      claim.itemStatus = populatedItem.status;
+    }
+    return claim;
   }
 }
 

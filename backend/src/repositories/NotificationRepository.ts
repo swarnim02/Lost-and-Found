@@ -1,30 +1,42 @@
+import { Types } from 'mongoose';
 import { BaseRepository } from './BaseRepository';
+import { NotificationModel, NotificationDoc } from '../config/schema';
 import { NotificationRow } from '../types/domain';
 
-class NotificationRepository extends BaseRepository<NotificationRow, NotificationRow> {
-  constructor() { super('notifications'); }
+class NotificationRepository extends BaseRepository<NotificationDoc, NotificationRow, NotificationRow> {
+  constructor() { super(NotificationModel); }
 
-  protected mapRow(row: NotificationRow | undefined): NotificationRow | null {
+  protected mapRow(row: NotificationRow | null | undefined): NotificationRow | null {
     return row ?? null;
   }
 
-  create(userId: number, message: string): NotificationRow {
-    const info = this.db.prepare(
-      `INSERT INTO notifications (user_id, message) VALUES (?, ?)`
-    ).run(userId, message);
-    return this.findById(Number(info.lastInsertRowid))!;
+  async create(userId: string, message: string): Promise<NotificationRow> {
+    const doc = await this.collection.create({
+      userId: new Types.ObjectId(userId),
+      message
+    });
+    return this.mapRow(this.toRow(doc.toObject()))!;
   }
 
-  findByUser(userId: number): NotificationRow[] {
-    return this.db.prepare(
-      `SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50`
-    ).all(userId) as NotificationRow[];
+  async findByUser(userId: string): Promise<NotificationRow[]> {
+    if (!Types.ObjectId.isValid(userId)) return [];
+    const docs = await this.collection
+      .find({ userId: new Types.ObjectId(userId) })
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean()
+      .exec();
+    return docs
+      .map((d) => this.mapRow(this.toRow(d)))
+      .filter((m): m is NotificationRow => m !== null);
   }
 
-  markRead(id: number, userId: number): void {
-    this.db.prepare(
-      `UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?`
-    ).run(id, userId);
+  async markRead(id: string, userId: string): Promise<void> {
+    if (!Types.ObjectId.isValid(id) || !Types.ObjectId.isValid(userId)) return;
+    await this.collection.updateOne(
+      { _id: new Types.ObjectId(id), userId: new Types.ObjectId(userId) },
+      { $set: { isRead: true } }
+    );
   }
 }
 
