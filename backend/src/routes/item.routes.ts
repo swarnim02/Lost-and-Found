@@ -4,7 +4,7 @@ import { authenticate } from '../middleware/authMiddleware';
 
 const router = Router();
 
-router.get('/categories', (req, res) => ItemController.listCategories(req, res));
+router.get('/categories', (req, res, next) => ItemController.listCategories(req, res, next));
 router.get('/search', (req, res, next) => ItemController.search(req, res, next));
 router.get('/mine', authenticate, (req, res, next) => ItemController.myItems(req, res, next));
 router.get('/:id', (req, res, next) => ItemController.getById(req, res, next));

@@ -4,57 +4,58 @@ import rewardService from '../services/RewardService';
 import categoryRepository from '../repositories/CategoryRepository';
 
 export class ItemController {
-  createLost(req: Request, res: Response, next: NextFunction): void {
-    try { res.status(201).json(itemService.createLost(req.user!.id, req.body)); }
+  async createLost(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try { res.status(201).json(await itemService.createLost(req.user!.id, req.body)); }
     catch (err) { next(err); }
   }
 
-  createFound(req: Request, res: Response, next: NextFunction): void {
-    try { res.status(201).json(itemService.createFound(req.user!.id, req.body)); }
+  async createFound(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try { res.status(201).json(await itemService.createFound(req.user!.id, req.body)); }
     catch (err) { next(err); }
   }
 
-  update(req: Request, res: Response, next: NextFunction): void {
-    try { res.json(itemService.update(Number(req.params.id), req.user!.id, req.body)); }
+  async update(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try { res.json(await itemService.update(req.params.id, req.user!.id, req.body)); }
     catch (err) { next(err); }
   }
 
-  remove(req: Request, res: Response, next: NextFunction): void {
+  async remove(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      itemService.delete(Number(req.params.id), req.user!.id, req.user!.isAdmin());
+      await itemService.delete(req.params.id, req.user!.id, req.user!.isAdmin());
       res.status(204).end();
     } catch (err) { next(err); }
   }
 
-  getById(req: Request, res: Response, next: NextFunction): void {
-    try { res.json(itemService.getById(Number(req.params.id))); }
+  async getById(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try { res.json(await itemService.getById(req.params.id)); }
     catch (err) { next(err); }
   }
 
-  search(req: Request, res: Response, next: NextFunction): void {
-    try { res.json(itemService.search(req.query as Record<string, string>)); }
+  async search(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try { res.json(await itemService.search(req.query as Record<string, string>)); }
     catch (err) { next(err); }
   }
 
-  myItems(req: Request, res: Response, next: NextFunction): void {
-    try { res.json(itemService.listForUser(req.user!.id)); }
+  async myItems(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try { res.json(await itemService.listForUser(req.user!.id)); }
     catch (err) { next(err); }
   }
 
-  declareReward(req: Request, res: Response, next: NextFunction): void {
+  async declareReward(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const amount = Number(req.body.rewardAmount);
-      res.json(rewardService.declare(Number(req.params.id), req.user!.id, amount));
+      res.json(await rewardService.declare(req.params.id, req.user!.id, amount));
     } catch (err) { next(err); }
   }
 
-  completeReward(req: Request, res: Response, next: NextFunction): void {
-    try { res.json(rewardService.complete(Number(req.params.id), req.user!.id)); }
+  async completeReward(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try { res.json(await rewardService.complete(req.params.id, req.user!.id)); }
     catch (err) { next(err); }
   }
 
-  listCategories(_req: Request, res: Response): void {
-    res.json(categoryRepository.findAll('name ASC'));
+  async listCategories(_req: Request, res: Response, next: NextFunction): Promise<void> {
+    try { res.json(await categoryRepository.findAll({ name: 1 })); }
+    catch (err) { next(err); }
   }
 }
 

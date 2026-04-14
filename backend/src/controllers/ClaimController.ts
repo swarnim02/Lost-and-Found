@@ -3,40 +3,40 @@ import claimService from '../services/ClaimService';
 import notificationService from '../services/NotificationService';
 
 export class ClaimController {
-  submit(req: Request, res: Response, next: NextFunction): void {
+  async submit(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const payload = { itemId: Number(req.body.itemId), message: String(req.body.message ?? '') };
-      res.status(201).json(claimService.submit(req.user!.id, payload));
+      const payload = { itemId: String(req.body.itemId ?? ''), message: String(req.body.message ?? '') };
+      res.status(201).json(await claimService.submit(req.user!.id, payload));
     } catch (err) { next(err); }
   }
 
-  accept(req: Request, res: Response, next: NextFunction): void {
-    try { res.json(claimService.accept(Number(req.params.id), req.user!.id)); }
+  async accept(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try { res.json(await claimService.accept(req.params.id, req.user!.id)); }
     catch (err) { next(err); }
   }
 
-  reject(req: Request, res: Response, next: NextFunction): void {
-    try { res.json(claimService.reject(Number(req.params.id), req.user!.id)); }
+  async reject(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try { res.json(await claimService.reject(req.params.id, req.user!.id)); }
     catch (err) { next(err); }
   }
 
-  byItem(req: Request, res: Response, next: NextFunction): void {
-    try { res.json(claimService.listByItem(Number(req.params.itemId), req.user!.id)); }
+  async byItem(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try { res.json(await claimService.listByItem(req.params.itemId, req.user!.id)); }
     catch (err) { next(err); }
   }
 
-  mySubmitted(req: Request, res: Response, next: NextFunction): void {
-    try { res.json(claimService.listByClaimer(req.user!.id)); }
+  async mySubmitted(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try { res.json(await claimService.listByClaimer(req.user!.id)); }
     catch (err) { next(err); }
   }
 
-  myInbox(req: Request, res: Response, next: NextFunction): void {
-    try { res.json(claimService.listForOwner(req.user!.id)); }
+  async myInbox(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try { res.json(await claimService.listForOwner(req.user!.id)); }
     catch (err) { next(err); }
   }
 
-  notifications(req: Request, res: Response, next: NextFunction): void {
-    try { res.json(notificationService.listForUser(req.user!.id)); }
+  async notifications(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try { res.json(await notificationService.listForUser(req.user!.id)); }
     catch (err) { next(err); }
   }
 }
