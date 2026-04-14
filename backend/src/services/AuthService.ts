@@ -35,10 +35,10 @@ export class AuthService {
     validEmail(payload.email);
     strongPassword(payload.password);
 
-    if (this.repo.findByEmail(payload.email)) throw ApiError.conflict('Email already registered');
+    if (await this.repo.findByEmail(payload.email)) throw ApiError.conflict('Email already registered');
 
     const hash = await bcrypt.hash(payload.password, this.rounds);
-    const user = this.repo.create({
+    const user = await this.repo.create({
       name: payload.name,
       email: payload.email,
       password: hash,
@@ -50,7 +50,7 @@ export class AuthService {
 
   async login(payload: LoginPayload): Promise<AuthResult> {
     requireFields(payload, ['email', 'password']);
-    const user = this.repo.findByEmail(payload.email);
+    const user = await this.repo.findByEmail(payload.email);
     if (!user) throw ApiError.unauthorized('Invalid credentials');
     if (user.isSuspended) throw ApiError.forbidden('Account suspended');
 

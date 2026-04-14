@@ -16,48 +16,48 @@ import { ItemPayload } from '../types/domain';
 export class ItemService {
   constructor(private readonly repo = itemRepository) {}
 
-  createLost(userId: number, payload: Omit<ItemPayload, 'createdBy'>): Item {
+  async createLost(userId: string, payload: Omit<ItemPayload, 'createdBy'>): Promise<Item> {
     requireFields(payload, ['title', 'description', 'location', 'dateLostOrFound']);
     const item = ItemFactory.create('lost', { ...payload, createdBy: userId });
     return this.repo.create(item);
   }
 
-  createFound(userId: number, payload: Omit<ItemPayload, 'createdBy'>): Item {
+  async createFound(userId: string, payload: Omit<ItemPayload, 'createdBy'>): Promise<Item> {
     requireFields(payload, ['title', 'description', 'location', 'dateLostOrFound']);
     const item = ItemFactory.create('found', { ...payload, createdBy: userId });
     return this.repo.create(item);
   }
 
-  update(id: number, userId: number, payload: UpdateItemFields): Item {
-    const item = this.requireOwned(id, userId);
+  async update(id: string, userId: string, payload: UpdateItemFields): Promise<Item> {
+    const item = await this.requireOwned(id, userId);
     if (payload.status && ![...item.allowedNextStatuses(), item.status].includes(payload.status)) {
       throw ApiError.badRequest(`Illegal status transition ${item.status} → ${payload.status}`);
     }
-    return this.repo.update(id, payload)!;
+    return (await this.repo.update(id, payload))!;
   }
 
-  delete(id: number, userId: number, isAdmin = false): boolean {
-    const item = this.repo.findById(id);
+  async delete(id: string, userId: string, isAdmin = false): Promise<boolean> {
+    const item = await this.repo.findById(id);
     if (!item) throw ApiError.notFound('Item not found');
     if (!isAdmin && item.createdBy !== userId) throw ApiError.forbidden('Not your item');
     return this.repo.deleteById(id);
   }
 
-  getById(id: number): Item {
-    const item = this.repo.findById(id);
+  async getById(id: string): Promise<Item> {
+    const item = await this.repo.findById(id);
     if (!item) throw ApiError.notFound('Item not found');
     return item;
   }
 
-  search(query: SearchQuery): Item[] {
+  async search(query: SearchQuery): Promise<Item[]> {
     const strategies = buildStrategies(query);
     return this.repo.searchWithStrategies(strategies);
   }
 
-  listForUser(userId: number): Item[] { return this.repo.findByUser(userId); }
+  async listForUser(userId: string): Promise<Item[]> { return this.repo.findByUser(userId); }
 
-  private requireOwned(id: number, userId: number): Item {
-    const item = this.repo.findById(id);
+  private async requireOwned(id: string, userId: string): Promise<Item> {
+    const item = await this.repo.findById(id);
     if (!item) throw ApiError.notFound('Item not found');
     if (item.createdBy !== userId) throw ApiError.forbidden('Not your item');
     return item;

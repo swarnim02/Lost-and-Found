@@ -28,51 +28,54 @@ export class AdminService {
     private readonly claimRepo = claimRepository
   ) {}
 
-  listAllUsers(): Omit<User, 'password'>[] {
-    return this.userRepo.findAll().map((u) => u.toPublic());
+  async listAllUsers(): Promise<Omit<User, 'password'>[]> {
+    const users = await this.userRepo.findAll();
+    return users.map((u) => u.toPublic());
   }
-  listAllItems(): Item[] { return this.itemRepo.findAll(); }
-  listAllClaims(): Claim[] { return this.claimRepo.findAll(); }
+  async listAllItems(): Promise<Item[]> { return this.itemRepo.findAll(); }
+  async listAllClaims(): Promise<Claim[]> { return this.claimRepo.findAll(); }
 
-  deleteItem(itemId: number): boolean {
-    const item = this.itemRepo.findById(itemId);
+  async deleteItem(itemId: string): Promise<boolean> {
+    const item = await this.itemRepo.findById(itemId);
     if (!item) throw ApiError.notFound('Item not found');
     return this.itemRepo.deleteById(itemId);
   }
 
-  suspendUser(userId: number): Omit<User, 'password'> {
-    const user = this.userRepo.findById(userId);
+  async suspendUser(userId: string): Promise<Omit<User, 'password'>> {
+    const user = await this.userRepo.findById(userId);
     if (!user) throw ApiError.notFound('User not found');
     if (user.isAdmin()) throw ApiError.forbidden('Cannot suspend an admin');
-    const updated = this.userRepo.suspend(userId, true);
+    const updated = await this.userRepo.suspend(userId, true);
     bus.publish('user.suspended', { userId });
     return updated.toPublic();
   }
 
-  reinstateUser(userId: number): Omit<User, 'password'> {
-    const user = this.userRepo.findById(userId);
+  async reinstateUser(userId: string): Promise<Omit<User, 'password'>> {
+    const user = await this.userRepo.findById(userId);
     if (!user) throw ApiError.notFound('User not found');
-    return this.userRepo.suspend(userId, false).toPublic();
+    const updated = await this.userRepo.suspend(userId, false);
+    return updated.toPublic();
   }
 
-  resolveDispute(claimId: number, resolution: ClaimStatus): Claim {
+  async resolveDispute(claimId: string, resolution: ClaimStatus): Promise<Claim> {
     if (!['accepted', 'rejected'].includes(resolution)) {
       throw ApiError.badRequest('Resolution must be accepted or rejected');
     }
-    const claim = this.claimRepo.findById(claimId);
+    const claim = await this.claimRepo.findById(claimId);
     if (!claim) throw ApiError.notFound('Claim not found');
-    return this.claimRepo.updateStatus(claimId, resolution)!;
+    return (await this.claimRepo.updateStatus(claimId, resolution))!;
   }
 
-  stats(): AdminStats {
-    return {
-      users: this.userRepo.count(),
-      items: this.itemRepo.count(),
-      openItems: this.itemRepo.count("status = 'open'"),
-      returnedItems: this.itemRepo.count("status = 'returned'"),
-      claims: this.claimRepo.count(),
-      pendingClaims: this.claimRepo.count("claim_status = 'pending'")
-    };
+  async stats(): Promise<AdminStats> {
+    const [users, items, openItems, returnedItems, claims, pendingClaims] = await Promise.all([
+      this.userRepo.count(),
+      this.itemRepo.count(),
+      this.itemRepo.count({ status: 'open' }),
+      this.itemRepo.count({ status: 'returned' }),
+      this.claimRepo.count(),
+      this.claimRepo.count({ claimStatus: 'pending' })
+    ]);
+    return { users, items, openItems, returnedItems, claims, pendingClaims };
   }
 }
 
