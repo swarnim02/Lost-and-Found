@@ -6,7 +6,7 @@ system. Built for the SESD course project.
 
 ## Tech Stack
 
-- **Backend:** Node.js + Express + TypeScript, SQLite (better-sqlite3), JWT + Bcrypt
+- **Backend:** Node.js + Express + TypeScript, MongoDB (Mongoose), JWT + Bcrypt
 - **Frontend:** React + TypeScript + Vite + React Router
 - **Architecture:** Clean layered MVC (routes → controllers → services → repositories)
 
@@ -21,11 +21,11 @@ system. Built for the SESD course project.
 ├── ErDiagram.md                Mermaid ER diagram
 ├── backend/                    Express + TypeScript API
 │   ├── src/
-│   │   ├── config/             Singleton DB, schema init, seed
+│   │   ├── config/             Singleton DB connection, Mongoose schemas, seed
 │   │   ├── types/              Shared domain and Express type augments
 │   │   ├── models/             OOP domain objects (User, Item/LostItem/FoundItem, Claim, Category)
 │   │   ├── patterns/           Factory, Strategy, Observer implementations
-│   │   ├── repositories/       BaseRepository + concrete repos per table
+│   │   ├── repositories/       BaseRepository + concrete repos per collection
 │   │   ├── services/           Business logic (Auth, Item, Claim, Reward, Admin, Notification)
 │   │   ├── controllers/        Thin HTTP adapters
 │   │   ├── middleware/         auth + error handlers
@@ -65,12 +65,12 @@ Each layer has one responsibility; dependencies flow inward.
   │ Services  │    (publishes domain events on EventBus)
   └─────┬─────┘
         ▼
-  ┌──────────────┐ SQL only — no business rules here
+  ┌──────────────┐ Mongoose only — no business rules here
   │ Repositories │
   └─────┬────────┘
         ▼
   ┌──────────┐
-  │ Database │   SQLite (swappable to MySQL/Postgres)
+  │ Database │   MongoDB (via Mongoose ODM)
   └──────────┘
 ```
 
@@ -87,9 +87,9 @@ Each layer has one responsibility; dependencies flow inward.
 
 | Pattern         | File                                | Purpose                                            |
 |-----------------|-------------------------------------|----------------------------------------------------|
-| Singleton       | `backend/src/config/database.ts`    | Single DB connection per process                   |
+| Singleton       | `backend/src/config/database.ts`    | Single Mongoose connection per process             |
 | Factory Method  | `backend/src/patterns/ItemFactory.ts` | Centralised construction of LostItem/FoundItem   |
-| Strategy        | `backend/src/patterns/SearchStrategy.ts` | Composable WHERE-clause fragments for search  |
+| Strategy        | `backend/src/patterns/SearchStrategy.ts` | Composable Mongo filter fragments for search  |
 | Observer (pub/sub) | `backend/src/patterns/EventBus.ts` | Notifications decoupled from claim/reward flows  |
 | Repository      | `backend/src/repositories/*`        | Data-access isolation from services                |
 | Service Layer   | `backend/src/services/*`            | Business rules above repositories                  |
@@ -99,11 +99,15 @@ Each layer has one responsibility; dependencies flow inward.
 ## Running Locally
 
 ```bash
+# 0) Start MongoDB locally (or set MONGODB_URI to an Atlas URI)
+#    macOS:  brew services start mongodb-community
+#    docker: docker run -d -p 27017:27017 --name mongo mongo:7
+
 # 1) Backend
 cd backend
 cp .env.example .env
 npm install
-npm run seed          # creates schema + seeds categories + default admin
+npm run seed          # seeds categories + default admin
 npm run dev           # http://localhost:5000
 
 # 2) Frontend (new terminal)

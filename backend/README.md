@@ -7,13 +7,13 @@ Express + TypeScript backend for the Lost and Found Management System.
 Clean layered architecture:
 
 ```
-routes  →  controllers  →  services  →  repositories  →  database (SQLite)
+routes  →  controllers  →  services  →  repositories  →  database (MongoDB)
                                      ↘
                                        patterns (Factory, Strategy, Observer)
 ```
 
-- **Singleton** — `config/database.ts` (one DB connection per process)
-- **Repository** — `repositories/BaseRepository.ts` + concrete repos per table
+- **Singleton** — `config/database.ts` (one Mongoose connection per process)
+- **Repository** — `repositories/BaseRepository.ts` + concrete repos per collection
 - **Service Layer** — business rules live in `services/*` (no HTTP concerns)
 - **MVC** — `controllers/*` parse requests and delegate to services
 - **Factory Method** — `patterns/ItemFactory.ts` builds `LostItem` / `FoundItem`
@@ -26,7 +26,7 @@ routes  →  controllers  →  services  →  repositories  →  database (SQLit
 cd backend
 cp .env.example .env
 npm install
-npm run seed        # creates schema + seeds categories + admin user
+npm run seed        # seeds categories + admin user (starts Mongo connection)
 npm run dev         # development, hot reload
 # or
 npm run build && npm start
