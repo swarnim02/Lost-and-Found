@@ -5,7 +5,7 @@ export type RewardStatus = 'not_declared' | 'pending' | 'completed';
 export type ClaimStatus = 'pending' | 'accepted' | 'rejected';
 
 export interface User {
-  id: number;
+  id: string;
   name: string;
   email: string;
   phone: string | null;
@@ -16,16 +16,16 @@ export interface User {
 }
 
 export interface Category {
-  id: number;
+  id: string;
   name: string;
   description: string | null;
 }
 
 export interface Item {
-  id: number;
+  id: string;
   title: string;
   description: string;
-  categoryId: number | null;
+  categoryId: string | null;
   location: string;
   dateLostOrFound: string;
   imageUrl: string | null;
@@ -33,15 +33,15 @@ export interface Item {
   status: ItemStatus;
   rewardAmount: number;
   rewardStatus: RewardStatus;
-  createdBy: number;
+  createdBy: string;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface Claim {
-  id: number;
-  itemId: number;
-  claimerId: number;
+  id: string;
+  itemId: string;
+  claimerId: string;
   message: string;
   claimStatus: ClaimStatus;
   createdAt: string;
@@ -54,11 +54,11 @@ export interface Claim {
 }
 
 export interface Notification {
-  id: number;
-  user_id: number;
+  id: string;
+  userId: string;
   message: string;
-  is_read: number;
-  created_at: string;
+  isRead: boolean;
+  createdAt: string;
 }
 
 export interface AdminStats {
